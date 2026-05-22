@@ -8,7 +8,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, create_engine, Session
 
 from src.dependencies import get_session
-from main import app
+from src.main import app
 
 TEST_DB_URL = "sqlite:///:memory:"
 
