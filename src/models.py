@@ -1,8 +1,9 @@
-from datetime import datetime, date, timezone
+from datetime import date, datetime, timezone
 from typing import Annotated
+
 from pydantic import StringConstraints
-from sqlmodel import Field, SQLModel, Relationship
-from sqlalchemy import UniqueConstraint, CheckConstraint
+from sqlalchemy import CheckConstraint, Index, UniqueConstraint, text
+from sqlmodel import Field, Relationship, SQLModel
 
 
 class DepartamentBase(SQLModel):
@@ -38,6 +39,13 @@ class Department(DepartamentBase, table=True):
     __table_args__ = (
         UniqueConstraint("name", "parent_id"),
         CheckConstraint("id != parent_id", name="department_not_self_parent"),
+        Index(
+            "uq_department_name_root",
+            "name",
+            unique=True,
+            postgresql_where=text("parent_id IS NULL"),
+            sqlite_where=text("parent_id IS NULL"),
+        ),
     )
 
     id: int | None = Field(default=None, primary_key=True)
@@ -57,7 +65,7 @@ class DepartmentDeleteParams(SQLModel):
     reassign_to_department_id: int | None = Field(
         default=None,
         title="Reassign to department ID",
-        description='ID of the department to reassign employees to. Required if mode is "reassign"',
+        description='ID of the department to reassign employees to. Required if mode is "reassign". Ignored if mode is "cascade"',
     )
 
 

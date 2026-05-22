@@ -11,8 +11,8 @@ A FastAPI application for managing a department/employee hierarchy, backed by Po
 ## Getting started
 
 ```bash
-git clone <repository-url>
-cd test_task
+git clone https://github.com/Vitalii-Kh95/department_test_task.git
+cd department_test_task
 ```
 
 

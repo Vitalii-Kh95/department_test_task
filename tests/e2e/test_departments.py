@@ -30,6 +30,21 @@ def test_cannot_create_department_with_long_name(client: TestClient):
     )
 
 
+def test_cannot_create_department_with_nonexistent_parent_id(client: TestClient):
+    response = client.post("/departments/", json={"name": "string", "parent_id": 0})
+    assert response.status_code == 404
+
+    response = client.post("/departments/", json={"name": "string", "parent_id": 1})
+    assert response.status_code == 404
+
+
+def test_cannot_create_duplicate_root_department_name(client: TestClient):
+    client.post("/departments/", json={"name": "Engineering"})
+    response = client.post("/departments/", json={"name": "Engineering"})
+
+    assert response.status_code == 409
+
+
 def test_cannot_create_duplicate_name_within_same_parent(client: TestClient):
     parent = client.post("/departments/", json={"name": "Engineering"}).json()
     parent_id = parent["id"]
@@ -88,26 +103,16 @@ def test_cannot_make_circular_dependency_on_update(client: TestClient):
     assert "Circular dependency" in response.json()["detail"]
 
 
-def test_cannot_make_circular_dependency_on_reassign(client: TestClient):
-    response_a = client.post("/departments/", json={"name": "Department A"})
-    response_b = client.post(
-        "/departments/",
-        json={"name": "Department B", "parent_id": response_a.json()["id"]},
-    )
-    response_c = client.post(
-        "/departments/",
-        json={"name": "Department C", "parent_id": response_b.json()["id"]},
-    )
+
+def test_cannot_reassign_to_deleted_department(client: TestClient):
+    department = client.post("/departments/", json={"name": "Engineering"}).json()
 
     response = client.delete(
-        f"/departments/{response_a.json()['id']}/",
-        params={
-            "mode": "reassign",
-            "reassign_to_department_id": response_c.json()["id"],
-        },
+        f"/departments/{department['id']}/",
+        params={"mode": "reassign", "reassign_to_department_id": department["id"]},
     )
-    assert response.status_code == 409
-    assert "Circular dependency" in response.json()["detail"]
+
+    assert response.status_code == 400
 
 
 def test_delete_cascade_removes_department_descendants_and_employees(
@@ -161,7 +166,7 @@ def test_delete_cascade_removes_department_descendants_and_employees(
     assert session.get(Department, department_c["id"]) is None
 
 
-def test_delete_reassign_moves_children_and_employees_to_target(
+def test_delete_reassign_moves_employees_to_target_and_promotes_children(
     client: TestClient, session: Session
 ):
     target = client.post("/departments/", json={"name": "Target"}).json()
@@ -216,7 +221,7 @@ def test_delete_reassign_moves_children_and_employees_to_target(
     )
 
     department_b_db = session.get(Department, department_b["id"])
-    assert department_b_db.parent_id == target["id"]  # type: ignore
+    assert department_b_db.parent_id is None  # type: ignore
 
 
 def test_get_nonexistent_department_returns_404(client: TestClient):
@@ -231,7 +236,7 @@ def test_get_department_default_depth_doesnt_show_children(client: TestClient):
     data = client.get(f"/departments/{a['id']}/").json()
 
     assert data["name"] == "A"
-    assert data["children"] is None
+    assert "children" not in data
 
 
 def test_get_department_depth_2_returns_children(client: TestClient):
@@ -259,7 +264,7 @@ def test_get_department_employees_are_flattened(client: TestClient):
 
     names = [e["full_name"] for e in data["employees"]]
     assert names == ["Alice Johnson", "Zara Smith"]
-    assert data["children"][0]["employees"] is None
+    assert "employees" not in data["children"][0]
 
 
 def test_get_department_exclude_employees(client: TestClient):
@@ -273,4 +278,4 @@ def test_get_department_exclude_employees(client: TestClient):
         f"/departments/{a['id']}/", params={"include_employees": False}
     ).json()
 
-    assert data["employees"] is None
+    assert "employees" not in data

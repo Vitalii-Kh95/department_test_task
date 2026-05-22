@@ -41,9 +41,10 @@ def would_create_cycle(
 async def create_department(
     session: Annotated[Session, Depends(get_session)], data: DepartamentCreate
 ):
-    if data.parent_id and not department_exists(session, data.parent_id):
+    if data.parent_id is not None and not department_exists(session, data.parent_id):
         raise HTTPException(
-            status_code=404, detail=f"Parent department {data.parent_id} not found"
+            status_code=404,
+            detail=f"Parent department with id: {data.parent_id} not found",
         )
 
     department = Department.model_validate(data)
@@ -66,7 +67,8 @@ async def create_employee(
 ):
     if not department_exists(session, data.department_id):
         raise HTTPException(
-            status_code=404, detail=f"Department {data.department_id} not found"
+            status_code=404,
+            detail=f"Department with id: {data.department_id} not found",
         )
     employee = Employee.model_validate(data)
     session.add(employee)
@@ -75,7 +77,11 @@ async def create_employee(
     return employee
 
 
-@router.get("/departments/{department_id}", response_model=DepartmentRead)
+@router.get(
+    "/departments/{department_id}",
+    response_model=DepartmentRead,
+    response_model_exclude_none=True,
+)
 async def get_department(
     session: Annotated[Session, Depends(get_session)],
     department_id: Annotated[int, Path(title="The ID of the item to get")],
@@ -128,7 +134,7 @@ async def get_department(
 
     if not department:
         raise HTTPException(
-            status_code=404, detail=f"Departament with id {department_id} not found"
+            status_code=404, detail=f"Departament with id: {department_id} not found"
         )
     result = _load_tree(department, depth)
     result.employees = (
@@ -146,7 +152,7 @@ async def update_department(
     department_db = session.get(Department, department_id)
     if not department_db:
         raise HTTPException(
-            status_code=404, detail=f"Department with id {department_id} not found"
+            status_code=404, detail=f"Department with id: {department_id} not found"
         )
 
     if department.parent_id is not None:
@@ -154,7 +160,7 @@ async def update_department(
         if not parent:
             raise HTTPException(
                 status_code=404,
-                detail=f"Parent department {department.parent_id} not found",
+                detail=f"Parent department with id: {department.parent_id} not found",
             )
 
         if would_create_cycle(session, department_id, department.parent_id):
@@ -196,7 +202,7 @@ async def delete_department(
     departament = session.get(Department, department_id)
     if not departament:
         raise HTTPException(
-            status_code=404, detail=f"Departament with id {department_id} not found"
+            status_code=404, detail=f"Departament with id: {department_id} not found"
         )
 
     if params.mode == "cascade":
@@ -207,14 +213,17 @@ async def delete_department(
                 "reassign_to_department_id is required when mode is 'reassign'"
             )
 
+        if params.reassign_to_department_id == department_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot reassign to the department being deleted",
+            )
+
         if not department_exists(session, params.reassign_to_department_id):
             raise HTTPException(
                 status_code=404,
-                detail=f"Departament with id {params.reassign_to_department_id} not found",
+                detail=f"Departament with id: {params.reassign_to_department_id} not found",
             )
-
-        if would_create_cycle(session, department_id, params.reassign_to_department_id):
-            raise HTTPException(status_code=409, detail="Circular dependency detected")
 
         employees = session.exec(
             select(Employee).where(Employee.department_id == department_id)
@@ -225,7 +234,7 @@ async def delete_department(
             select(Department).where(Department.parent_id == department_id)
         ).all()
         for child in children:
-            child.parent_id = params.reassign_to_department_id
+            child.parent_id = None
         session.commit()
 
         session.delete(departament)
